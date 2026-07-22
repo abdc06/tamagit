@@ -271,6 +271,18 @@ describe('알림 판단', () => {
     assert.match(nudges.find((n) => n.kind === 'streak-risk')!.message, /longest run yet/);
   });
 
+  test('첫 실행이어도 스트릭 위험은 알린다 (레벨업·업적과 다르다)', () => {
+    // 레벨업·업적은 lastNotifiedLevel === null 이면 억제한다 — 과거를 몰아서
+    // 축하하면 스팸이라서다. 스트릭은 그 가드가 없고, 없는 게 맞다:
+    // "오늘 끊긴다"는 과거가 아니라 지금 사실이고, 놓치면 알림의 존재 이유가 없다.
+    const s = fakeStats({
+      streak: { current: 4, longest: 24, atRisk: true },
+      todayStat: { ...fakeStats().todayStat, prompts: 0, xp: 0 },
+    });
+    const { nudges } = decideNudges(s, ['streak-7', 'frenzy'], FRESH);
+    assert.deepEqual(nudges.map((n) => n.kind), ['streak-risk']);
+  });
+
   test('언어 인자에 따라 문구가 바뀐다 (기본은 영어)', () => {
     const s = fakeStats({
       streak: { current: 4, longest: 24, atRisk: true },
