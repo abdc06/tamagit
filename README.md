@@ -141,6 +141,27 @@ before you have to go looking.
 
 ---
 
+## Renamed a project folder?
+
+Projects are identified by **absolute path** — that is what Claude Code records. Rename the folder
+and the same work becomes two projects: prompt counts, boss fights and the "N projects" total all
+split.
+
+```bash
+tamagit projects                          # ✗ marks paths that are gone from disk
+tamagit projects merge code-rpg tamagit   # the trailing folder name is enough
+tamagit projects unmerge code-rpg         # drop the rule; rows already moved stay put
+```
+
+`merge` stores a rule rather than running a one-off `UPDATE`. Every `sync` from then on applies it
+to **incoming rows as well as existing ones**, so a session that was already open under the old
+path can't re-split the history a day later.
+
+It is deliberately not automatic. A path that vanished from disk is equally consistent with a
+rename, a move, or a deletion — only you know which, so tamagit flags it and waits.
+
+---
+
 ## Language
 
 Everything defaults to **English**. Korean is available as an option:
