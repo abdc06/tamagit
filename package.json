@@ -11,8 +11,10 @@
     "sync": "node --disable-warning=ExperimentalWarning src/cli.ts sync",
     "stats": "node --disable-warning=ExperimentalWarning src/cli.ts stats",
     "serve": "node --disable-warning=ExperimentalWarning src/cli.ts serve",
-    "test": "node --disable-warning=ExperimentalWarning --test src/**/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "test": "node --disable-warning=ExperimentalWarning --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "install:auto": "node --disable-warning=ExperimentalWarning src/cli.ts install",
+    "status": "node --disable-warning=ExperimentalWarning src/cli.ts status"
   },
   "engines": {
     "node": ">=22.18.0"
