@@ -5,8 +5,9 @@ dist/
 *.db-wal
 .DS_Store
 
-# 문서는 로컬 전용 — README.md 만 공개한다
+# 문서는 로컬 전용 — README 만 공개한다
 docs/
 SPEC.md
 *.md
 !README.md
+!README.ko.md
