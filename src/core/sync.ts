@@ -12,6 +12,7 @@ import {
   upsertPrompts,
 } from './db.ts';
 import { parseHistory, type ParseError } from './history.ts';
+import { applyAliases, loadAliases, resolveProject } from './projects.ts';
 import { buildRuns } from './runs.ts';
 import { promptXp } from './xp.ts';
 import { evaluateAchievements, type PromptRow } from './achievements.ts';
@@ -26,6 +27,8 @@ export interface SyncResult {
   parseErrors: ParseError[];
   runs: number;
   bosses: number;
+  /** 별칭 규칙에 따라 다른 프로젝트로 옮긴 기존 행 수 */
+  remappedRows: number;
   newAchievements: string[];
   skipped?: string;
   /** --notify 로 실행했을 때 실제로 띄운 알림 */
@@ -50,6 +53,9 @@ export function sync(cfg: Config, now = Date.now(), opts: SyncOptions = {}): Syn
   let parseErrors: ParseError[] = [];
   let skipped: string | undefined;
 
+  // 개명된 프로젝트 경로 통합 규칙. 적재 시점과 기존 행 양쪽에 같은 규칙을 먹인다.
+  const aliases = loadAliases(db);
+
   if (!existsSync(cfg.historyPath)) {
     // 원본이 없어도 DB 에 쌓아둔 기록으로 계속 논다 — 이게 30일 삭제 방어의 실제 동작이다
     skipped = dict(cfg.lang).sync.sourceMissing(cfg.historyPath);
@@ -61,7 +67,7 @@ export function sync(cfg: Config, now = Date.now(), opts: SyncOptions = {}): Syn
     const rows: PromptRow[] = parsed.prompts.map((p) => ({
       sessionId: p.sessionId,
       ts: p.ts,
-      project: p.project,
+      project: resolveProject(aliases, p.project),
       charLen: p.charLen,
       isMultiline: p.isMultiline,
       isSlash: p.isSlash,
@@ -76,6 +82,9 @@ export function sync(cfg: Config, now = Date.now(), opts: SyncOptions = {}): Syn
     setMeta(db, 'last_source_mtime', String(parsed.mtime));
     setMeta(db, 'last_source_bytes', String(parsed.bytes));
   }
+
+  // 원본이 사라진 뒤 적재된 옛 경로 행까지 매번 끌어온다 (별칭 등록 이전 기록 포함)
+  const remappedRows = applyAliases(db, aliases);
 
   // run/보스전은 DB 전체(원본에서 이미 사라진 과거 포함)를 기준으로 다시 만든다
   const all = loadPrompts(db);
@@ -109,6 +118,7 @@ export function sync(cfg: Config, now = Date.now(), opts: SyncOptions = {}): Syn
     parseErrors,
     runs: runs.length,
     bosses: runs.filter((r) => r.isBoss).length,
+    remappedRows,
     newAchievements,
     skipped,
     nudges,

@@ -1,6 +1,19 @@
 #!/usr/bin/env -S node --disable-warning=ExperimentalWarning
-import { resolveConfig, type CliOverrides } from './core/config.ts';
+import { resolveConfig, type CliOverrides, type Config } from './core/config.ts';
 import { dict, resolveLang, type Lang } from './core/i18n.ts';
+import { makeClock } from './core/clock.ts';
+import { openDb } from './core/db.ts';
+import {
+  addAlias,
+  applyAliases,
+  expandPath,
+  isExplicitPath,
+  listAliases,
+  loadAliases,
+  matchProject,
+  projectSummaries,
+  removeAlias,
+} from './core/projects.ts';
 import { sync } from './core/sync.ts';
 import { buildStats } from './core/stats.ts';
 import { renderTerminal } from './terminal.ts';
@@ -19,6 +32,8 @@ import {
 
 interface Flags {
   cmd: string;
+  /** cmd 뒤에 온 위치 인자 (`projects merge <a> <b>` 같은 하위 명령) */
+  args: string[];
   opts: CliOverrides;
   json: boolean;
   help: boolean;
@@ -31,6 +46,7 @@ interface Flags {
 
 function parseArgs(argv: string[]): Flags {
   const opts: CliOverrides = {};
+  const args: string[] = [];
   let cmd = '';
   let json = false;
   let help = false;
@@ -92,9 +108,10 @@ function parseArgs(argv: string[]): Flags {
           console.error(dict(resolveLang(opts.lang)).cli.unknownOption(a));
           process.exit(1);
         } else if (!cmd) cmd = a;
+        else args.push(a);
     }
   }
-  return { cmd: cmd || 'serve', opts, json, help, notify, quiet, at, hookOnly, agentOnly };
+  return { cmd: cmd || 'serve', args, opts, json, help, notify, quiet, at, hookOnly, agentOnly };
 }
 
 function reportSync(r: ReturnType<typeof sync>, lang: Lang, quiet = false): void {
@@ -121,11 +138,111 @@ function reportSync(r: ReturnType<typeof sync>, lang: Lang, quiet = false): void
       console.log(`     L${e.line} ${e.reason}: ${e.sample.slice(0, 60)}`);
     }
   }
+  if (r.remappedRows > 0) console.log(M.remapped(r.remappedRows.toLocaleString()));
   if (r.newAchievements.length) {
     console.log(M.newAchievements(r.newAchievements.length, r.newAchievements.join(', ')));
   }
   for (const n of r.nudges) {
     console.log(`🔔 ${n.title} — ${n.message}`);
+  }
+}
+
+/**
+ * 프로젝트 목록 · 개명으로 쪼개진 경로 통합.
+ * 종료 코드를 돌려준다 (0 = 성공).
+ */
+function runProjects(cfg: Config, args: string[]): number {
+  const P = dict(cfg.lang).projects;
+  const [sub, from, to] = args;
+  const db = openDb(cfg.dbPath);
+  try {
+    const summaries = projectSummaries(db);
+    // 이미 통합해서 DB 에 행이 남아있지 않은 옛 경로도 인자로 받아야 한다
+    // (그래야 두 번째 merge 가 사슬/순환 검사에 제대로 걸린다)
+    const known = [...new Set([...summaries.map((s) => s.project), ...listAliases(db).map((a) => a.from)])];
+
+    if (!sub) {
+      if (summaries.length === 0) {
+        console.log(P.empty);
+        return 0;
+      }
+      const clock = makeClock(cfg.timeZone, cfg.dayStartHour);
+      const width = Math.max(...summaries.map((s) => s.prompts.toLocaleString().length));
+      console.log(P.title(summaries.length));
+      for (const s of summaries) {
+        const n = s.prompts.toLocaleString().padStart(width);
+        console.log(`  ${n}  ${s.exists ? '✓' : '✗'}  ${s.project}  ${clock.dayKey(s.lastTs)}`);
+      }
+      if (summaries.some((s) => !s.exists)) {
+        console.log(`\n${P.legendMissing}`);
+        console.log(P.mergeHint);
+      }
+      const aliases = listAliases(db);
+      if (aliases.length) {
+        console.log(P.aliasesTitle);
+        for (const a of aliases) console.log(`  ${a.from}\n    → ${a.to}`);
+      }
+      return 0;
+    }
+
+    if (sub === 'merge') {
+      if (!from || !to) {
+        console.error(P.usage);
+        return 1;
+      }
+      // 원본은 반드시 DB 에 있어야 한다 — 오타를 규칙으로 굳히면 조용히 안 맞는다
+      const src = matchProject(known, from);
+      if (!src.ok) {
+        console.error(src.reason === 'none' ? P.notFound(from) : P.ambiguous(from));
+        if (src.reason === 'ambiguous') for (const c of src.candidates) console.error(`  ${c}`);
+        return 1;
+      }
+      // 대상은 아직 기록이 없을 수도 있다 (먼저 개명하고 아직 안 열어본 경우) —
+      // 단 그때는 절대경로로 명시해야 한다. 맨이름을 cwd 로 펴면 엉뚱한 경로가 굳는다.
+      const dst = matchProject(known, to);
+      if (!dst.ok && dst.reason === 'ambiguous') {
+        console.error(P.ambiguous(to));
+        for (const c of dst.candidates) console.error(`  ${c}`);
+        return 1;
+      }
+      if (!dst.ok && !isExplicitPath(to)) {
+        console.error(P.notFound(to));
+        return 1;
+      }
+      const target = dst.ok ? dst.project : expandPath(to);
+
+      const added = addAlias(db, src.project, target, Date.now());
+      if (!added.ok) {
+        console.error(added.reason === 'same' ? P.same : P.cycle(src.project, target));
+        return 1;
+      }
+      const moved = applyAliases(db, loadAliases(db));
+      console.log(P.merged(src.project, target));
+      console.log(P.mergedRows(moved.toLocaleString()));
+      return 0;
+    }
+
+    if (sub === 'unmerge') {
+      if (!from) {
+        console.error(P.usage);
+        return 1;
+      }
+      const rules = listAliases(db).map((a) => a.from);
+      const src = matchProject(rules, from);
+      if (!src.ok) {
+        console.error(src.reason === 'none' ? P.noAlias(from) : P.ambiguous(from));
+        if (src.reason === 'ambiguous') for (const c of src.candidates) console.error(`  ${c}`);
+        return 1;
+      }
+      removeAlias(db, src.project);
+      console.log(P.unmerged(src.project));
+      return 0;
+    }
+
+    console.error(P.usage);
+    return 1;
+  } finally {
+    db.close();
   }
 }
 
@@ -192,6 +309,11 @@ async function main(): Promise<void> {
     }
     case 'status': {
       reportStatus(cfg.lang);
+      return;
+    }
+    case 'projects': {
+      const code = runProjects(cfg, f.args);
+      if (code !== 0) process.exit(code);
       return;
     }
     default:

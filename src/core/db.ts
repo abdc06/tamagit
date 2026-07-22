@@ -62,9 +62,17 @@ CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- 프로젝트는 절대경로로 식별된다. 폴더 이름을 바꾸면 같은 프로젝트가 둘로 쪼개지므로,
+-- 옛 경로 → 새 경로 매핑을 여기 남기고 sync 가 적재 시점마다 적용한다.
+CREATE TABLE IF NOT EXISTS project_aliases (
+  from_path  TEXT    PRIMARY KEY,
+  to_path    TEXT    NOT NULL,
+  created_at INTEGER NOT NULL
+);
 `;
 
-export const SCHEMA_VERSION = '1';
+export const SCHEMA_VERSION = '2';
 
 export function openDb(path: string): DatabaseSync {
   mkdirSync(dirname(path), { recursive: true });

@@ -55,6 +55,24 @@ export interface Dict {
     parseErrors: (n: number) => string;
     parseErrorsQuiet: (n: number) => string;
     newAchievements: (n: number, ids: string) => string;
+    remapped: (rows: string) => string;
+  };
+
+  projects: {
+    title: (n: number) => string;
+    empty: string;
+    legendMissing: string;
+    mergeHint: string;
+    aliasesTitle: string;
+    merged: (from: string, to: string) => string;
+    mergedRows: (rows: string) => string;
+    unmerged: (from: string) => string;
+    noAlias: (from: string) => string;
+    usage: string;
+    notFound: (input: string) => string;
+    ambiguous: (input: string) => string;
+    same: string;
+    cycle: (from: string, to: string) => string;
   };
 
   install: {
@@ -165,6 +183,7 @@ Commands
   serve            ingest, then open the local dashboard (default)
   sync             ingest history.jsonl into the local DB only
   stats            print a summary in the terminal
+  projects         list projects; merge paths split by a folder rename
   install          enable auto-capture (Claude Code hook + daily job)
   uninstall        disable auto-capture
   status           show what auto-capture is enabled
@@ -216,6 +235,31 @@ Why auto-capture matters
     parseErrors: (n) => `⚠️  ${n} unparsable lines — the format may have changed:`,
     parseErrorsQuiet: (n) => `tamagit: ${n} unparsable lines — possible history.jsonl format change`,
     newAchievements: (n, ids) => `🏆 ${n} new achievement(s): ${ids}`,
+    remapped: (rows) => `   ${rows} rows moved to their merged project path`,
+  },
+
+  projects: {
+    title: (n) => `\nProjects (${n})\n`,
+    empty: 'Nothing ingested yet. Run `tamagit sync` first.',
+    legendMissing: '  ✗ = path is gone from disk — renamed, moved or deleted',
+    mergeHint:
+      '  Renamed a folder? Its history is split in two. Merge it:\n' +
+      '    tamagit projects merge <old> <new>',
+    aliasesTitle: '\nMerged paths',
+    merged: (from, to) => `✅ Merged: ${from}\n           → ${to}`,
+    mergedRows: (rows) => `   ${rows} rows moved. New rows on the old path will follow from now on.`,
+    unmerged: (from) => `✅ Merge rule removed: ${from}\n   Rows already moved stay where they are.`,
+    noAlias: (from) => `No merge rule for: ${from}`,
+    usage:
+      'Usage\n' +
+      '  tamagit projects                      list projects\n' +
+      '  tamagit projects merge <old> <new>    treat <old> as <new>\n' +
+      '  tamagit projects unmerge <old>        drop that rule\n\n' +
+      'Paths may be full or just the trailing folder name.',
+    notFound: (input) => `No project matches: ${input}`,
+    ambiguous: (input) => `"${input}" matches more than one project — use a longer path:`,
+    same: 'Source and target are the same path.',
+    cycle: (from, to) => `That would loop: ${to} already resolves back to ${from}.`,
   },
 
   install: {
@@ -370,6 +414,7 @@ tamagit — Claude Code 활동을 읽어 코딩을 RPG로
   serve            적재 후 로컬 대시보드를 띄운다 (기본값)
   sync             history.jsonl 을 로컬 DB에 적재만 한다
   stats            터미널에 현황을 출력한다
+  projects         프로젝트 목록 · 개명으로 쪼개진 경로를 합친다
   install          자동 적재를 건다 (Claude Code 훅 + 매일 실행)
   uninstall        자동 적재를 해제한다
   status           자동 적재 설치 상태를 본다
@@ -419,6 +464,31 @@ tamagit — Claude Code 활동을 읽어 코딩을 RPG로
     parseErrors: (n) => `⚠️  파싱 실패 ${n}줄 — 포맷이 바뀌었을 수 있다:`,
     parseErrorsQuiet: (n) => `tamagit: 파싱 실패 ${n}줄 — history.jsonl 포맷 변화 의심`,
     newAchievements: (n, ids) => `🏆 새 업적 ${n}개: ${ids}`,
+    remapped: (rows) => `   ${rows}건을 합쳐진 프로젝트 경로로 옮겼다`,
+  },
+
+  projects: {
+    title: (n) => `\n프로젝트 (${n}곳)\n`,
+    empty: '아직 적재된 기록이 없다. `tamagit sync` 를 먼저 실행할 것.',
+    legendMissing: '  ✗ = 디스크에 없는 경로 — 개명·이동·삭제됐다',
+    mergeHint:
+      '  폴더 이름을 바꿨다면 기록이 둘로 쪼개져 있다. 합치려면:\n' +
+      '    tamagit projects merge <옛경로> <새경로>',
+    aliasesTitle: '\n합쳐진 경로',
+    merged: (from, to) => `✅ 합쳤다: ${from}\n           → ${to}`,
+    mergedRows: (rows) => `   ${rows}건을 옮겼다. 앞으로 옛 경로로 들어오는 기록도 자동으로 따라온다.`,
+    unmerged: (from) => `✅ 통합 규칙을 지웠다: ${from}\n   이미 옮겨진 기록은 그대로 둔다.`,
+    noAlias: (from) => `통합 규칙이 없다: ${from}`,
+    usage:
+      '사용법\n' +
+      '  tamagit projects                        프로젝트 목록\n' +
+      '  tamagit projects merge <옛것> <새것>    옛 경로를 새 경로로 취급한다\n' +
+      '  tamagit projects unmerge <옛것>         그 규칙을 해제한다\n\n' +
+      '경로는 전체 경로도, 끝 폴더 이름만도 받는다.',
+    notFound: (input) => `일치하는 프로젝트가 없다: ${input}`,
+    ambiguous: (input) => `"${input}" 에 해당하는 프로젝트가 여럿이다 — 경로를 더 길게 줄 것:`,
+    same: '원본과 대상이 같은 경로다.',
+    cycle: (from, to) => `순환이 된다: ${to} 는 이미 ${from} 으로 되돌아온다.`,
   },
 
   install: {
