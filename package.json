@@ -1,0 +1,39 @@
+{
+  "name": "tamagit",
+  "version": "0.1.0",
+  "description": "Claude Code 활동을 읽어 코딩을 RPG로 만든다. XP·스트릭·업적으로 자라는 펫.",
+  "type": "module",
+  "bin": {
+    "tamagit": "./src/cli.ts"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/cli.ts",
+    "sync": "node --disable-warning=ExperimentalWarning src/cli.ts sync",
+    "stats": "node --disable-warning=ExperimentalWarning src/cli.ts stats",
+    "serve": "node --disable-warning=ExperimentalWarning src/cli.ts serve",
+    "test": "node --disable-warning=ExperimentalWarning --test src/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "keywords": [
+    "claude-code",
+    "gamification",
+    "rpg",
+    "tamagotchi",
+    "developer-tools",
+    "xp",
+    "streak"
+  ],
+  "license": "MIT",
+  "private": true,
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "5.9"
+  }
+}
