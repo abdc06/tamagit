@@ -1,194 +1,236 @@
 # 🥚 tamagit
 
-> Claude Code 활동을 읽어, **코딩을 RPG로** 만든다.
-> XP·연속기록·업적으로 펫이 자라나는 **로컬 우선** 도구. 런타임 의존성 0.
+**English** · [한국어](README.ko.md)
 
-![대시보드](assets/dashboard.png)
+> Turn your Claude Code activity into an RPG.
+> XP, streaks, achievements, and a pet that grows. Local-first, **zero runtime dependencies**.
+
+![Dashboard](assets/dashboard.png)
 
 ---
 
-## 빠르게 돌려보기
+## Quick start
 
 ```bash
-node --disable-warning=ExperimentalWarning src/cli.ts        # 적재 + 대시보드 (기본)
-npm start                                                    # 위와 동일
-npm run stats                                                # 터미널 요약
-npm run sync                                                 # 적재만
-npm run install:auto                                         # 자동 적재 켜기 ← 먼저 이거
-npm test                                                     # 70개 테스트
+node --disable-warning=ExperimentalWarning src/cli.ts   # ingest + dashboard (default)
+npm start                                               # same as above
+npm run stats                                           # terminal summary
+npm run install:auto                                    # turn on auto-capture ← do this first
+npm test                                                # 79 tests
 ```
 
-대시보드는 `http://127.0.0.1:4173`. 외부로 열지 않는다(127.0.0.1 바인딩).
+Dashboard runs at `http://127.0.0.1:4173`, bound to loopback only.
 
-**요구사항: Node ≥ 22.18** — 내장 타입 스트리핑과 `node:sqlite`를 쓰기 때문에 빌드 단계도, 런타임 패키지도 없다.
-(`typescript`/`@types/node`는 타입체크용 devDependency일 뿐이다.)
+**Requires Node ≥ 22.18** — tamagit uses built-in type stripping and `node:sqlite`, so there is
+no build step and nothing to install. (`typescript` / `@types/node` are dev-only, for typechecking.)
 
 ---
 
-## 이 도구가 존재하는 이유
+## Why this exists
 
-`~/.claude/history.jsonl`은 **30일 뒤 사라진다**. 실제로 파일에는 30일치 미만만 남아 있다.
-이 도구는 그걸 매 실행마다 로컬 SQLite로 퍼 나른다. 원본이 지워져도 레벨과 스트릭은 남는다.
+`~/.claude/history.jsonl` **disappears after 30 days.** Claude Code rotates it, and once a day
+falls off the end, that day is gone.
+
+tamagit copies it into a local SQLite database on every run. Your level and streak survive the
+rotation — the database is the point, the game is the reason you keep it running.
 
 ```
-🛡  28일치 보존 중. 원본은 30일 뒤 사라지지만 이 DB는 남는다.
+🛡  Preserving 28 days. The source is deleted after 30 days; this DB is not.
     ~/.tamagit/data.db
 ```
 
-한 줄이 프롬프트 한 건이고, 필드는 `display` / `pastedContents` / `timestamp` / `project` / `sessionId`
-다섯 개다. `timestamp`는 epoch **ms**이고 파일은 append-only 오름차순이다.
-`(sessionId, ts)` 조합이 유일해서 멱등 적재 키로 쓴다.
+Each line in the source is one prompt, with five fields: `display`, `pastedContents`,
+`timestamp`, `project`, `sessionId`. Timestamps are epoch **milliseconds**, and the file is
+append-only in ascending order. `(sessionId, ts)` is unique, so it doubles as the idempotency key.
 
 ---
 
-## 자동 적재 — 반드시 켤 것
+## Auto-capture — turn this on
 
-직접 실행할 때만 적재한다면 **한 달 안 켠 기간의 기록은 영구 소실**된다.
-"30일 삭제 방어"가 사용자의 기억력에 의존하게 되는 셈이라, 두 겹으로 막는다.
+If tamagit only ingests when you run it by hand, then any stretch you forget about is **lost
+permanently.** That would make "survives the 30-day deletion" depend on your memory, which
+defeats the point. So it installs two layers.
 
 ```bash
-tamagit install              # 훅 + 매일 실행 둘 다
-tamagit install --at 22      # 매일 실행 시각을 밤 10시로
-tamagit install --hook-only  # 훅만
-tamagit status               # 지금 뭐가 켜져 있나
-tamagit uninstall            # 해제
+tamagit install              # both layers
+tamagit install --at 22      # run the daily job at 10pm instead
+tamagit install --hook-only  # hook only
+tamagit status               # what's currently enabled
+tamagit uninstall            # remove
 ```
 
-| 겹 | 시점 | 하는 일 |
+| Layer | When | What it does |
 |---|---|---|
-| **Claude Code 훅** (`SessionEnd`) | 세션이 끝날 때마다 | 적재. 데이터가 생기는 바로 그 자리에서 잡는다 |
-| **launchd** (macOS) | 매일 밤 9시 | 적재 + 스트릭 경고. Claude Code를 안 켠 날의 안전망 |
+| **Claude Code hook** (`SessionEnd`) | every time a session ends | Ingest, right where the data is produced |
+| **launchd** (macOS) | daily at 9pm | Ingest + streak warning. Covers days you never open Claude Code |
 
-훅은 `async: true`라 세션 종료를 붙잡지 않고, 셸을 거치지 않는 `args` 형태로 심어서
-경로에 공백이 있어도 안전하다. `~/.claude/settings.json`은 **읽고 병합**하며,
-기존 설정은 그대로 두고 백업(`settings.json.tamagit-backup`)을 남긴다.
-설정 파일이 깨져 있으면 덮어쓰지 않고 멈춘다.
+The hook is `async: true`, so it never holds up session shutdown, and it's installed in `args`
+(exec) form rather than as a shell string — paths with spaces are safe. `~/.claude/settings.json`
+is **read and merged**: your existing settings are untouched and a backup is written to
+`settings.json.tamagit-backup`. If that file is malformed, tamagit refuses to write rather than
+clobbering it.
 
-node 경로는 `/opt/homebrew/Cellar/node/23.6.0/...` 같은 버전 고정 경로 대신
-같은 실체를 가리키는 안정 심볼릭 링크를 찾아 쓴다. node를 올려도 훅이 조용히 죽지 않는다.
+The `node` path is resolved to a stable symlink (`/opt/homebrew/bin/node`) instead of the
+version-pinned one `process.execPath` reports (`.../Cellar/node/23.6.0/bin/node`). Otherwise a
+Homebrew upgrade would silently kill the hook — and silent capture failure is the worst kind,
+since you'd only find out a month later when the data isn't there.
 
-### 알림
+### Notifications
 
-`--notify`를 붙이면(설치 시 자동으로 붙는다) 세 가지를 macOS 알림으로 띄운다.
+With `--notify` (added automatically by `install`), three things reach macOS Notification Center:
 
-- **레벨업** / **새 업적** — 축하
-- **스트릭 위험** — 오늘 아직 0건이고 어제까지 이어져 있을 때. **하루 한 번만** 조른다
+- **Level up** and **new achievement** — celebration
+- **Streak at risk** — only when today is still empty and yesterday was not. **Once per day, max.**
 
-첫 실행에는 아무것도 띄우지 않는다. 과거 기록을 몰아서 축하하면 스팸이 되기 때문에
-기준선만 기록하고 그 다음부터 알린다. macOS가 아니면 조용히 넘어간다(의존성 추가 없음).
+The first run stays silent. Replaying a month of history as a burst of congratulations is spam,
+so tamagit records a baseline and only speaks up from the next run onward. On non-macOS platforms
+it silently does nothing — no extra dependency.
 
 ---
 
-## 게임 규칙
+## Game rules
 
 ### XP
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
-| 프롬프트 기본 | 10 XP |
-| 길이 보너스 | `8 × ln(1 + 글자수/20)` |
-| 멀티라인 | +5 |
-| 붙여넣기 첨부 | +6 |
-| 슬래시/뱅 커맨드 | ×0.5 |
-| 몰입 구간 완주 | +15 |
-| **보스전 클리어** | **+200** |
-| 스트릭 보너스 | 그날 소계의 `(연속일수-1)%`, 최대 +30% |
+| Base per prompt | 10 XP |
+| Length bonus | `8 × ln(1 + chars/20)` |
+| Multi-line | +5 |
+| Pasted attachment | +6 |
+| Slash / bang command | ×0.5 |
+| Focus run completed | +15 |
+| **Boss fight cleared** | **+200** |
+| Streak bonus | `(streak − 1)%` of the day's subtotal, capped at +30% |
 
-길이 보상이 **로그 스케일**인 이유: 실제 프롬프트 길이는 몇 글자짜리 추임새(`"계속"`, `"진행시켜"`)부터
-천 자 넘는 설계 문단까지 두 자릿수 배로 벌어진다. 선형이면 장문 하나가 하루를 끝내버리고,
-균일하면 추임새와 설계 프롬프트가 같은 값이 된다.
-현재 곡선은 4자 12 XP, 36자 18 XP, 1,184자 43 XP다.
+Length is rewarded on a **log scale** because real prompt lengths span two orders of magnitude —
+from a four-character "go on" to a thousand-character design brief. Linear scaling lets one long
+prompt end your day; flat scoring makes a grunt worth as much as a spec. The current curve gives
+12 XP at 4 chars, 18 at 36, and 43 at 1,184.
 
-레벨업에 필요한 XP는 `500 × 레벨^1.4`. 하루 130 프롬프트를 꾸준히 쓰면 한 달에 Lv.13 언저리.
+Levels cost `500 × level^1.4`. At a steady 130 prompts a day, that lands around Lv.13 in a month.
 
-### 하루 경계 — 새벽 4시
+### Day boundary — 4am
 
-`03:59`의 활동은 **전날**로 귀속된다. 밤 20~23시 활동이 하루의 5분의 1을 차지하는 게 보통이라,
-자정 경계를 쓰면 밤샘 코딩이 두 날로 쪼개지면서 스트릭 체감이 망가진다. `--day-start 0`으로 끌 수 있다.
+Activity at `03:59` counts toward the **previous day**. Late-night coding (8–11pm) is routinely a
+fifth of daily volume, so a midnight boundary splits an all-nighter across two days and wrecks how
+the streak feels. Use `--day-start 0` if you disagree.
 
-### 몰입 구간과 보스전
+### Focus runs and boss fights
 
-**몰입 구간(run)** = 같은 세션 안에서 프롬프트 간격이 **30분 이내**로 이어진 덩어리.
-**보스전** = 한 구간이 **60분 이상 AND 프롬프트 15건 이상**.
+A **focus run** is a stretch within one session where consecutive prompts are **under 30 minutes**
+apart. A **boss fight** is a run of **60+ minutes AND 15+ prompts**.
 
-세션을 통째로 쓰지 않는 이유: 24시간 넘게 열려 있는데 프롬프트는 열댓 개뿐인 세션이 흔하다.
-총 경과시간은 자리를 비운 시간까지 포함해서 몰입의 척도가 못 된다.
+Sessions aren't used whole because a session that stays open for 24 hours with a dozen prompts in
+it is common. Wall-clock duration counts the time you walked away, so it doesn't measure focus.
 
-### 업적 10종
+### Achievements
 
-👣 첫 발자국 · 🔥 일주일의 규율 · 🏔️ 한 달의 수행 · 🦉 야행성 · 🌑 마의 시간
-⚔️ 보스 헌터 · 📜 장인의 문장 · 🧭 방랑자 · ⚡ 폭주 · 🏰 개척자
+👣 First Step · 🔥 Week of Discipline · 🏔️ Month of Practice · 🦉 Night Owl · 🌑 Witching Hour
+⚔️ Boss Hunter · 📜 Wordsmith · 🧭 Wanderer · ⚡ Frenzy · 🏰 Pioneer
 
-달성 시각은 **실제로 조건을 만족한 그 시점**으로 소급 계산한다 (도구를 오늘 처음 켜도 과거 날짜가 찍힌다).
+Unlock times are computed retroactively to **the moment the condition was actually met**, so
+first-run history gets real dates rather than today's.
 
-### 펫
+### Pet
 
-🥚 알(Lv.1) → 🐣 해츨링(3) → 🦎 코드 리저드(6) → 🐲 드레이크(11) → 🐉 코드 드래곤(19) → ✨ 성좌룡(31)
+🥚 Egg (Lv.1) → 🐣 Hatchling (3) → 🦎 Code Lizard (6) → 🐲 Drake (11) → 🐉 Code Dragon (19) → ✨ Astral Wyrm (31)
 
-오늘 활동량과 스트릭에 따라 기분이 바뀐다. 스트릭이 오늘 끊길 상황이면 펫이 먼저 알려준다.
+Its mood follows today's activity and your streak. If the streak is about to break, the pet says so
+before you have to go looking.
 
 ---
 
-## 옵션
+## Language
 
-```
---history <path>   원본 경로       (기본 ~/.claude/history.jsonl)
---db <path>        DB 경로         (기본 ~/.tamagit/data.db)
---tz <zone>        시간대          (기본 Asia/Seoul)
---day-start <h>    하루 시작 시각  (기본 4)
---idle <min>       몰입 구간 분리  (기본 30)
---port <n>         대시보드 포트   (기본 4173)
---notify           레벨업·업적·스트릭 위험을 OS 알림으로
---quiet            출력을 줄인다 (훅·자동 실행용)
---at <h>           자동 실행 시각  (기본 21)
---json             stats 를 JSON 으로
+Everything defaults to **English**. Korean is available as an option:
+
+```bash
+tamagit stats --lang ko          # one-off
+export TAMAGIT_LANG=ko           # persistent, for your shell
 ```
 
----
+The dashboard takes a query parameter too, so you can switch without restarting the server:
+`http://127.0.0.1:4173/?lang=ko`
 
-## 포맷이 깨지면
+Locale is deliberately **not** auto-detected — "the default is English" should not shift
+depending on whose machine it runs on. The CLI flag beats `$TAMAGIT_LANG`, which beats the default.
 
-Claude Code의 내부 포맷은 버전마다 바뀐다. 그래서 파서는:
-
-- 라인 단위로 실패를 격리하고, **버린 줄을 반드시 카운트해서 노출한다** (조용히 삼키면 XP가 조용히 틀어진다)
-- 모르는 신규 필드는 무시하고 통과시킨다
-- `timestamp`가 초 단위로 바뀌어도 ms로 보정한다
-
-테스트에 **실제 `history.jsonl`을 감시하는 회귀 검사**가 들어 있다.
-필드 조합이 알려진 형태와 달라지면 `npm test`가 터진다 = 파서를 고치라는 신호다.
-(`~/.claude/history.jsonl`이 없는 환경에서는 자동으로 skip된다.)
+Adding a language means adding one entry to `src/core/i18n.ts`. A test asserts that every
+dictionary has exactly the same keys, so a missing translation fails the build rather than
+silently rendering a blank label.
 
 ---
 
-## 구조
+## Options
+
+```
+--history <path>   source file    (default ~/.claude/history.jsonl)
+--db <path>        database       (default ~/.tamagit/data.db)
+--tz <zone>        timezone       (default Asia/Seoul)
+--day-start <h>    day boundary   (default 4)
+--idle <min>       run split gap  (default 30)
+--lang <en|ko>     output language (default en, or $TAMAGIT_LANG)
+--port <n>         dashboard port (default 4173)
+--notify           level-ups, achievements and streak warnings as OS notifications
+--quiet            minimal output (for hooks and scheduled runs)
+--at <h>           daily run hour (default 21)
+--json             emit stats as JSON
+```
+
+---
+
+## When the format changes
+
+Claude Code's internal format shifts between versions. The parser is built for that:
+
+- Failures are isolated per line, and **discarded lines are always counted and surfaced**
+  (swallowing them quietly means XP drifts quietly)
+- Unknown new fields pass through untouched
+- If `timestamp` ever switches to seconds, it's coerced back to milliseconds
+
+The test suite includes a **regression check that watches your real `history.jsonl`**. If the field
+set stops matching the known shape, `npm test` fails — that's the signal to fix the parser. On
+machines without the file, that check skips itself.
+
+---
+
+## Layout
 
 ```
 src/
-  cli.ts            엔트리 (sync / stats / serve / install)
-  server.ts         내장 http 서버, 의존성 없음
-  terminal.ts       터미널 렌더러
-  web/index.html    대시보드 (인라인 CSS/JS, 외부 요청 0)
+  cli.ts            entry point (sync / stats / serve / install)
+  server.ts         built-in http server, no dependencies
+  terminal.ts       terminal renderer
+  web/index.html    dashboard (inline CSS/JS, zero external requests)
   core/
-    config.ts       설정 · 게임 규칙 상수
-    clock.ts        하루 경계 · 시간대
-    history.ts      history.jsonl 파서 (방어적)
-    xp.ts           XP · 레벨 곡선
-    runs.ts         몰입 구간 · 보스전 판정
-    streak.ts       연속기록
-    achievements.ts 업적 10종
-    pet.ts          펫 진화 · 기분
-    db.ts           SQLite 스키마 · 멱등 적재
-    sync.ts         적재 파이프라인
-    install.ts      훅 · launchd 설치
-    notify.ts       알림 판단 · macOS 발송
-    stats.ts        대시보드 집계
-    core.test.ts    코어 테스트
-    install.test.ts 설치 · 알림 테스트
+    config.ts       settings and game constants
+    clock.ts        day boundary and timezone
+    history.ts      history.jsonl parser (defensive)
+    xp.ts           XP and level curve
+    runs.ts         focus runs and boss detection
+    streak.ts       streaks
+    achievements.ts the ten achievements
+    pet.ts          pet evolution and mood
+    db.ts           SQLite schema and idempotent ingest
+    sync.ts         ingest pipeline
+    i18n.ts         message catalog (en / ko)
+    install.ts      hook and launchd installation
+    notify.ts       notification decisions and macOS delivery
+    stats.ts        dashboard aggregation
 ```
 
 ---
 
-## 알려진 한계
+## Known limits
 
-- **총 몰입 시간은 낙관적이다.** 유휴 30분 미만 간격은 전부 "활동 중"으로 계산하므로, 29분 자리를 비워도 몰입에 포함된다. 보스전 판정에는 건수 조건(15건)이 함께 걸려 있어 영향이 적지만, 상단 타일의 총 몰입 시간은 상한으로 읽는 게 맞다.
-- 하루 경계 시프트는 DST가 있는 시간대에서 전환일 하루만 1시간 어긋난다. 한국은 해당 없음.
+- **Total focus time is optimistic.** Any gap under 30 minutes counts as active, so stepping away
+  for 29 minutes still counts. Boss detection also requires a prompt count, which limits the
+  damage there, but read the total-hours tile as an upper bound.
+- The day-boundary shift is off by an hour on DST transition days in zones that observe it.
+
+---
+
+## License
+
+MIT © Dalgureum Lab
