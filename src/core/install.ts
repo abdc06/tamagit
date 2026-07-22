@@ -24,6 +24,12 @@ export const AGENT_PLIST = join(homedir(), 'Library', 'LaunchAgents', `${AGENT_L
 
 const HOOK_EVENT = 'SessionEnd';
 
+/**
+ * node 를 `node <flags> script.ts` 로 띄울 때는 셰뱅의 플래그가 적용되지 않는다.
+ * 빼먹으면 훅/자동 실행이 매번 ExperimentalWarning 을 stderr 로 흘린다.
+ */
+const NODE_FLAGS = ['--disable-warning=ExperimentalWarning'];
+
 interface HookCommand {
   type: string;
   command: string;
@@ -79,7 +85,7 @@ function buildHookGroup(nodePath: string, cliPath: string, L: Dict['install']): 
         type: 'command',
         // exec 형태(args)를 쓰면 셸을 거치지 않는다 — 경로에 공백/따옴표가 있어도 안전하다
         command: nodePath,
-        args: [cliPath, 'sync', '--notify', '--quiet'],
+        args: [...NODE_FLAGS, cliPath, 'sync', '--notify', '--quiet'],
         async: true,
         timeout: 30,
         statusMessage: L.statusMessage,
@@ -192,7 +198,7 @@ export function buildPlist(
   hour: number,
   logPath: string,
 ): string {
-  const args = [nodePath, cliPath, 'sync', '--notify', '--quiet']
+  const args = [nodePath, ...NODE_FLAGS, cliPath, 'sync', '--notify', '--quiet']
     .map((a) => `    <string>${xmlEscape(a)}</string>`)
     .join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>

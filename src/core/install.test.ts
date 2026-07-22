@@ -76,7 +76,7 @@ describe('훅 설치 — 남의 설정을 절대 건드리지 않는다', () => 
     assert.equal(r.changed, true);
     const groups = read(f).hooks.SessionEnd;
     assert.equal(groups.length, 1);
-    assert.equal(groups[0].hooks[0].args[0], '/new/path/tamagit/src/cli.ts');
+    assert.ok(groups[0].hooks[0].args.includes('/new/path/tamagit/src/cli.ts'));
   });
 
   test('셸을 거치지 않는 exec 형태로 심는다 (경로에 공백이 있어도 안전)', () => {
@@ -85,6 +85,7 @@ describe('훅 설치 — 남의 설정을 절대 건드리지 않는다', () => 
     const h = read(f).hooks.SessionEnd[0].hooks[0];
     assert.equal(h.command, NODE);
     assert.deepEqual(h.args, [
+      '--disable-warning=ExperimentalWarning',
       '/Users/x/My Projects/tamagit/src/cli.ts',
       'sync',
       '--notify',
@@ -158,6 +159,10 @@ describe('launchd plist', () => {
   test('레이블과 스케줄이 들어간다', () => {
     assert.match(plist, new RegExp(`<string>${AGENT_LABEL}</string>`));
     assert.match(plist, /<key>Hour<\/key><integer>21<\/integer>/);
+  });
+
+  test('node 경고 플래그를 직접 넘긴다 (셰뱅이 안 먹는 실행 형태라서)', () => {
+    assert.ok(plist.includes('<string>--disable-warning=ExperimentalWarning</string>'));
   });
 
   test('부팅 시 실행하지 않는다', () => {
