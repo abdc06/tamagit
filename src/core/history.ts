@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
+import { dict, type Lang } from './i18n.ts';
 
 /**
  * ~/.claude/history.jsonl 파서.
@@ -43,7 +44,8 @@ function countPasted(v: unknown): number {
   return isObj(v) ? Object.keys(v).length : 0;
 }
 
-export function parseHistory(path: string): ParseResult {
+export function parseHistory(path: string, lang: Lang = 'en'): ParseResult {
+  const P = dict(lang).parse;
   const stat = statSync(path);
   const raw = readFileSync(path, 'utf8');
   const lines = raw.split('\n');
@@ -61,11 +63,11 @@ export function parseHistory(path: string): ParseResult {
     try {
       row = JSON.parse(line);
     } catch (e) {
-      errors.push({ line: i + 1, reason: 'JSON 파싱 실패', sample: line.slice(0, 120) });
+      errors.push({ line: i + 1, reason: P.badJson, sample: line.slice(0, 120) });
       continue;
     }
     if (!isObj(row)) {
-      errors.push({ line: i + 1, reason: '객체가 아님', sample: line.slice(0, 120) });
+      errors.push({ line: i + 1, reason: P.notObject, sample: line.slice(0, 120) });
       continue;
     }
 
@@ -76,11 +78,11 @@ export function parseHistory(path: string): ParseResult {
     if (typeof timestamp === 'number' && Number.isFinite(timestamp)) {
       ts = timestamp < 1e12 ? timestamp * 1000 : timestamp;
     } else {
-      errors.push({ line: i + 1, reason: 'timestamp 없음/비정상', sample: line.slice(0, 120) });
+      errors.push({ line: i + 1, reason: P.badTimestamp, sample: line.slice(0, 120) });
       continue;
     }
     if (typeof sessionId !== 'string' || !sessionId) {
-      errors.push({ line: i + 1, reason: 'sessionId 없음', sample: line.slice(0, 120) });
+      errors.push({ line: i + 1, reason: P.noSessionId, sample: line.slice(0, 120) });
       continue;
     }
 

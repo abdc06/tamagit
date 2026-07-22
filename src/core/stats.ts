@@ -8,6 +8,7 @@ import type { Run } from './runs.ts';
 import { levelFromXp, streakBonus, type LevelInfo } from './xp.ts';
 import { computeStreaks } from './streak.ts';
 import { petFor, type PetState } from './pet.ts';
+import { webStrings, type Lang } from './i18n.ts';
 
 export function buildContext(
   prompts: PromptRow[],
@@ -49,6 +50,9 @@ export interface ProjectStat {
 
 export interface Stats {
   generatedAt: number;
+  lang: Lang;
+  /** 대시보드가 쓰는 문자열 묶음 */
+  s: Record<string, string>;
   timeZone: string;
   dayStartHour: number;
   today: string;
@@ -216,14 +220,14 @@ export function buildStats(cfg: Config, now = Date.now()): Stats {
 
   // ---- 업적 ----
   const ctx = buildContext(prompts, runs, clock, now);
-  const achievements = evaluateAchievements(ctx).sort((a, b) => {
+  const achievements = evaluateAchievements(ctx, cfg.lang).sort((a, b) => {
     if (!!a.unlockedAt !== !!b.unlockedAt) return a.unlockedAt ? -1 : 1;
     if (a.unlockedAt && b.unlockedAt) return b.unlockedAt - a.unlockedAt;
     return b.have / b.need - a.have / a.need;
   });
 
   const level = levelFromXp(total);
-  const pet = petFor(level.level, todayStat.prompts, streaks.current, streaks.atRisk);
+  const pet = petFor(level.level, todayStat.prompts, streaks.current, streaks.atRisk, cfg.lang);
 
   const recentBosses = runs
     .filter((r) => r.isBoss)
@@ -244,6 +248,8 @@ export function buildStats(cfg: Config, now = Date.now()): Stats {
 
   return {
     generatedAt: now,
+    lang: cfg.lang,
+    s: webStrings(cfg.lang),
     timeZone: cfg.timeZone,
     dayStartHour: cfg.dayStartHour,
     today,

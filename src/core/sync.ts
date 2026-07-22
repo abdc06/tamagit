@@ -17,6 +17,7 @@ import { promptXp } from './xp.ts';
 import { evaluateAchievements, type PromptRow } from './achievements.ts';
 import { buildContext, buildStats } from './stats.ts';
 import { decideNudges, sendNotification, type Nudge } from './notify.ts';
+import { dict } from './i18n.ts';
 
 export interface SyncResult {
   sourceRows: number;
@@ -51,9 +52,9 @@ export function sync(cfg: Config, now = Date.now(), opts: SyncOptions = {}): Syn
 
   if (!existsSync(cfg.historyPath)) {
     // 원본이 없어도 DB 에 쌓아둔 기록으로 계속 논다 — 이게 30일 삭제 방어의 실제 동작이다
-    skipped = `원본 없음: ${cfg.historyPath}`;
+    skipped = dict(cfg.lang).sync.sourceMissing(cfg.historyPath);
   } else {
-    const parsed = parseHistory(cfg.historyPath);
+    const parsed = parseHistory(cfg.historyPath, cfg.lang);
     sourceRows = parsed.totalLines;
     parseErrors = parsed.errors;
 
@@ -82,7 +83,7 @@ export function sync(cfg: Config, now = Date.now(), opts: SyncOptions = {}): Syn
   replaceRuns(db, runs);
 
   const ctx = buildContext(all, runs, clock, now);
-  const states = evaluateAchievements(ctx);
+  const states = evaluateAchievements(ctx, cfg.lang);
   const unlocked = states
     .filter((s) => s.unlockedAt !== null)
     .map((s) => ({ id: s.id, unlockedAt: s.unlockedAt! }));
@@ -129,7 +130,7 @@ function fireNudges(
   const { nudges, nextState } = decideNudges(stats, newAchievements, {
     lastNotifiedLevel: prevLevelRaw === null ? null : Number(prevLevelRaw),
     lastStreakNagDay: prevNagDay,
-  });
+  }, cfg.lang);
 
   for (const n of nudges) sendNotification(n);
 

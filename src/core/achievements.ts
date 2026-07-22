@@ -1,3 +1,4 @@
+import { dict, type Lang } from './i18n.ts';
 import type { Run } from './runs.ts';
 
 export interface PromptRow {
@@ -31,8 +32,6 @@ export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 
 export interface AchievementDef {
   id: string;
-  name: string;
-  desc: string;
   icon: string;
   rarity: Rarity;
   /** 달성 시점의 ts 를 돌려준다. 미달성이면 null */
@@ -63,8 +62,6 @@ function streakReached(ctx: AchievementContext, need: number): number | null {
 export const ACHIEVEMENTS: AchievementDef[] = [
   {
     id: 'first-step',
-    name: '첫 발자국',
-    desc: '첫 프롬프트를 보냈다',
     icon: '👣',
     rarity: 'common',
     detect: (c) => c.prompts[0]?.ts ?? null,
@@ -72,8 +69,6 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
   {
     id: 'streak-7',
-    name: '일주일의 규율',
-    desc: '7일 연속으로 코딩했다',
     icon: '🔥',
     rarity: 'common',
     detect: (c) => streakReached(c, 7),
@@ -81,8 +76,6 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
   {
     id: 'streak-30',
-    name: '한 달의 수행',
-    desc: '30일 연속으로 코딩했다',
     icon: '🏔️',
     rarity: 'epic',
     detect: (c) => streakReached(c, 30),
@@ -90,8 +83,6 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
   {
     id: 'night-owl',
-    name: '야행성',
-    desc: '밤 20~23시에 프롬프트 100건',
     icon: '🦉',
     rarity: 'common',
     detect: (c) => nth(c, 100, (p) => p.hour >= 20 && p.hour <= 23),
@@ -99,8 +90,6 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
   {
     id: 'witching-hour',
-    name: '마의 시간',
-    desc: '새벽 2~4시에 코딩했다',
     icon: '🌑',
     rarity: 'legendary',
     detect: (c) => nth(c, 1, (p) => p.hour >= 2 && p.hour < 5),
@@ -108,8 +97,6 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
   {
     id: 'boss-slayer',
-    name: '보스 헌터',
-    desc: '보스전 10회 클리어',
     icon: '⚔️',
     rarity: 'rare',
     detect: (c) => {
@@ -121,8 +108,6 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
   {
     id: 'wordsmith',
-    name: '장인의 문장',
-    desc: '500자 이상 프롬프트 10건',
     icon: '📜',
     rarity: 'rare',
     detect: (c) => nth(c, 10, (p) => p.charLen >= 500),
@@ -130,8 +115,6 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
   {
     id: 'wanderer',
-    name: '방랑자',
-    desc: '서로 다른 프로젝트 10곳에서 활동',
     icon: '🧭',
     rarity: 'rare',
     detect: (c) => {
@@ -146,8 +129,6 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
   {
     id: 'frenzy',
-    name: '폭주',
-    desc: '하루에 프롬프트 200건',
     icon: '⚡',
     rarity: 'epic',
     detect: (c) => {
@@ -159,8 +140,6 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   },
   {
     id: 'pioneer',
-    name: '개척자',
-    desc: '한 프로젝트에 프롬프트 1,000건',
     icon: '🏰',
     rarity: 'legendary',
     detect: (c) => {
@@ -181,19 +160,27 @@ export const ACHIEVEMENTS: AchievementDef[] = [
 ];
 
 export interface AchievementState extends Omit<AchievementDef, 'detect' | 'progress'> {
+  /** 표시명 — i18n 에서 온다 */
+  name: string;
+  desc: string;
   unlockedAt: number | null;
   have: number;
   need: number;
 }
 
-export function evaluateAchievements(ctx: AchievementContext): AchievementState[] {
+export function evaluateAchievements(
+  ctx: AchievementContext,
+  lang: Lang = 'en',
+): AchievementState[] {
+  const d = dict(lang);
   return ACHIEVEMENTS.map((a) => {
     const unlockedAt = ctx.prompts.length ? a.detect(ctx) : null;
     const p = a.progress?.(ctx) ?? { have: unlockedAt ? 1 : 0, need: 1 };
+    const label = d.ach[a.id] ?? { name: a.id, desc: '' };
     return {
       id: a.id,
-      name: a.name,
-      desc: a.desc,
+      name: label.name,
+      desc: label.desc,
       icon: a.icon,
       rarity: a.rarity,
       unlockedAt,

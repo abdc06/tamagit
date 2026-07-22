@@ -177,15 +177,19 @@
 </head>
 <body>
 <div class="wrap" id="app">
-  <div class="meta">불러오는 중…</div>
+  <div class="meta">Loading…</div>
 </div>
 
 <script>
+let S = {};   // 서버가 내려주는 언어별 문자열
+// {name} 자리표시자를 채운다 — 어순이 언어마다 달라서 필요하다
+const f = (tpl, vals) => String(tpl ?? '').replace(/\{(\w+)\}/g, (_, k) => vals[k] ?? '');
 const $ = (h) => { const t = document.createElement('template'); t.innerHTML = h.trim(); return t.content.firstElementChild; };
-const num = (n) => (n ?? 0).toLocaleString('ko-KR');
+const num = (n) => (n ?? 0).toLocaleString(LOC);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const fmtDate = (ts) => new Date(ts).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' });
-const fmtDateTime = (ts) => new Date(ts).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+let LOC = 'en-US';
+const fmtDate = (ts) => new Date(ts).toLocaleDateString(LOC, { month: 'numeric', day: 'numeric' });
+const fmtDateTime = (ts) => new Date(ts).toLocaleString(LOC, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 function ring(progress) {
   const R = 76, C = 2 * Math.PI * R;
@@ -217,7 +221,7 @@ function sparkline(days) {
 
 function heatmap(days, today) {
   const d = days.slice(-119);
-  if (!d.length) return '<div class="meta">아직 데이터가 없다.</div>';
+  if (!d.length) return `<div class="meta">${S.noData}</div>`;
   const max = Math.max(1, ...d.map((x) => x.xp));
   const lvl = (xp) => (xp <= 0 ? 0 : xp / max > 0.6 ? 4 : xp / max > 0.32 ? 3 : xp / max > 0.12 ? 2 : 1);
   const dow = (day) => new Date(day + 'T00:00:00Z').getUTCDay();
@@ -230,17 +234,20 @@ function heatmap(days, today) {
   if (col.length) cols.push(col);
   const html = cols.map((c) => `<div class="col">${c.map((x) =>
     x === null ? '<div class="cell" style="visibility:hidden"></div>'
-      : `<div class="cell l${lvl(x.xp)}${x.day === today ? ' today' : ''}" title="${x.day} · ${num(x.xp)} XP · ${x.prompts}건"></div>`
+      : `<div class="cell l${lvl(x.xp)}${x.day === today ? ' today' : ''}" title="${x.day} · ${num(x.xp)} XP · ${x.prompts}"></div>`
   ).join('')}</div>`).join('');
   return `<div class="heat">${html}</div>
-    <div class="heatlegend">적음
+    <div class="heatlegend">${S.less}
       <span class="cell"></span><span class="cell l1"></span><span class="cell l2"></span>
-      <span class="cell l3"></span><span class="cell l4"></span>많음
+      <span class="cell l3"></span><span class="cell l4"></span>${S.more}
       <span style="margin-left:auto">${d[0].day} → ${d[d.length - 1].day}</span>
     </div>`;
 }
 
 function render(s) {
+  S = s.s || {};
+  LOC = s.lang === 'ko' ? 'ko-KR' : 'en-US';
+  document.title = S.title || 'tamagit';
   const app = document.getElementById('app');
   const p = s.pet;
   const peakHour = s.hours.indexOf(Math.max(...s.hours));
@@ -253,9 +260,9 @@ function render(s) {
   <div class="topbar">
     <div class="brand"><span class="mark">🥚</span> tamagit</div>
     <div class="meta">
-      <b>${s.today}</b> · ${esc(s.timeZone)} · 하루 시작 <b>${s.dayStartHour}시</b>
-      · 몰입 판정 유휴 <b>30분</b>
-      ${s.source.lastSyncAt ? `· 마지막 적재 <b>${fmtDateTime(s.source.lastSyncAt)}</b>` : ''}
+      <b>${s.today}</b> · ${esc(s.timeZone)} · ${S.dayStart} <b>${s.dayStartHour}:00</b>
+      · ${S.focusGap} <b>30m</b>
+      ${s.source.lastSyncAt ? `· ${S.lastSync} <b>${fmtDateTime(s.source.lastSyncAt)}</b>` : ''}
     </div>
   </div>
 
@@ -271,62 +278,62 @@ function render(s) {
       <div class="xpbar"><i style="width:${(s.level.progress * 100).toFixed(1)}%"></i></div>
       <div class="xpnums">
         <span><b>${num(s.level.intoLevel)}</b> / ${num(s.level.needed)} XP</span>
-        <span>다음 레벨까지 <b>${num(s.level.needed - s.level.intoLevel)}</b> · 총 <b>${num(s.level.totalXp)}</b> XP</span>
+        <span>${S.nextLevel} <b>${num(s.level.needed - s.level.intoLevel)}</b> · <b>${num(s.level.totalXp)}</b> ${S.totalXpSuffix}</span>
       </div>
     </div>
   </div>
 
   <div class="tiles">
-    <div class="tile today"><div class="k">오늘 XP</div><div class="v">${num(s.todayStat.xp)}</div>
-      <div class="s">프롬프트 ${num(s.todayStat.prompts)}건</div></div>
-    <div class="tile streak"><div class="k">연속 기록</div><div class="v">${s.streak.current}일 ${s.streak.current ? '🔥' : '💤'}</div>
-      <div class="s">${s.streak.atRisk ? '<span class="risk">오늘 안 하면 끊긴다</span>' : `최장 ${s.streak.longest}일`}</div></div>
-    <div class="tile"><div class="k">누적 프롬프트</div><div class="v">${num(s.totals.prompts)}</div>
-      <div class="s">${s.totals.activeDays}일 활동 / ${s.totals.calendarDays}일</div></div>
-    <div class="tile bosses"><div class="k">보스전 클리어</div><div class="v">${num(s.totals.bosses)}</div>
-      <div class="s">몰입 구간 ${num(s.totals.runs)}개</div></div>
-    <div class="tile"><div class="k">총 몰입 시간</div><div class="v">${Math.round(s.totals.activeMinutes / 60)}h</div>
-      <div class="s">프로젝트 ${s.totals.projects}곳</div></div>
+    <div class="tile today"><div class="k">${S.todayXp}</div><div class="v">${num(s.todayStat.xp)}</div>
+      <div class="s">${f(S.promptsCount, { n: num(s.todayStat.prompts) })}</div></div>
+    <div class="tile streak"><div class="k">${S.streakLabel}</div><div class="v">${f(S.streakValue, { n: s.streak.current })} ${s.streak.current ? '🔥' : '💤'}</div>
+      <div class="s">${s.streak.atRisk ? `<span class="risk">${S.breaksToday}</span>` : f(S.longest, { n: s.streak.longest })}</div></div>
+    <div class="tile"><div class="k">${S.totalPrompts}</div><div class="v">${num(s.totals.prompts)}</div>
+      <div class="s">${f(S.activeDays, { a: s.totals.activeDays, b: s.totals.calendarDays })}</div></div>
+    <div class="tile bosses"><div class="k">${S.bossCleared}</div><div class="v">${num(s.totals.bosses)}</div>
+      <div class="s">${f(S.focusRuns, { n: num(s.totals.runs) })}</div></div>
+    <div class="tile"><div class="k">${S.totalFocus}</div><div class="v">${Math.round(s.totals.activeMinutes / 60)}h</div>
+      <div class="s">${f(S.projects, { n: s.totals.projects })}</div></div>
   </div>
 
   <div class="grid2">
     <div class="panel">
-      <h2>활동 히트맵 <span>· 하루 = 한 칸, 밝을수록 많이 벌었다</span></h2>
+      <h2>${S.heatmap} <span>· ${S.heatmapNote}</span></h2>
       ${heatmap(s.days, s.today)}
-      <h2 style="margin-top:22px">최근 30일 XP</h2>
+      <h2 style="margin-top:22px">${S.last30}</h2>
       ${sparkline(s.days)}
     </div>
     <div class="panel">
-      <h2>주력 프로젝트 <span>· TOP 6</span></h2>
+      <h2>${S.topProjects} <span>· TOP 6</span></h2>
       <div class="rows">
         ${s.projects.slice(0, 6).map((x) => `
           <div class="row">
             <span class="name" title="${esc(x.project)}">${esc(x.name)}</span>
-            <span class="num">${num(x.prompts)}건${x.bosses ? ` · ⚔️${x.bosses}` : ''}</span>
+            <span class="num">${num(x.prompts)}${x.bosses ? ` · ⚔️${x.bosses}` : ''}</span>
             <span class="track"><i style="width:${(x.prompts / projMax * 100).toFixed(1)}%"></i></span>
           </div>`).join('')}
       </div>
-      <h2 style="margin-top:24px">시간대 <span>· 피크 ${peakHour}시</span></h2>
+      <h2 style="margin-top:24px">${S.hours} <span>· ${S.peak} ${peakHour}:00</span></h2>
       <div class="hours">
-        ${s.hours.map((v, h) => `<div class="h${h === peakHour ? ' peak' : ''}" style="height:${(v / maxHour * 100).toFixed(1)}%" title="${h}시 · ${num(v)}건"></div>`).join('')}
+        ${s.hours.map((v, h) => `<div class="h${h === peakHour ? ' peak' : ''}" style="height:${(v / maxHour * 100).toFixed(1)}%" title="${h}:00 · ${num(v)}"></div>`).join('')}
       </div>
-      <div class="hourlabels"><span>0시</span><span>6시</span><span>12시</span><span>18시</span><span>23시</span></div>
+      <div class="hourlabels"><span>0</span><span>6</span><span>12</span><span>18</span><span>23</span></div>
     </div>
   </div>
 
   <div class="grid2 rev">
     <div class="panel">
-      <h2>최근 보스전 <span>· ${s.totals.bosses}회 클리어</span></h2>
+      <h2>${S.recentBosses} <span>· ${s.totals.bosses} ${S.clearedSuffix}</span></h2>
       ${s.recentBosses.length
         ? s.recentBosses.map((b) => `
           <div class="bossrow">
             <span class="bn">⚔️ ${esc(b.name)}</span>
-            <span class="bs">${Math.round(b.activeMinutes)}분 · ${b.prompts}건 · ${fmtDate(b.endTs)}</span>
+            <span class="bs">${Math.round(b.activeMinutes)}${S.min} · ${b.prompts} · ${fmtDate(b.endTs)}</span>
           </div>`).join('')
-        : `<div class="meta">아직 보스전이 없다. 유휴 30분 없이 60분 이상 · 15건 이상을 이어가면 잡힌다.</div>`}
+        : `<div class="meta">${S.noBosses}</div>`}
     </div>
     <div class="panel">
-      <h2>업적 <span>· ${unlocked}/${s.achievements.length} 해금</span></h2>
+      <h2>${S.achievements} <span>· ${unlocked}/${s.achievements.length} ${S.unlockedSuffix}</span></h2>
       <div class="achs">
         ${s.achievements.map((a) => `
           <div class="ach ${a.unlockedAt ? '' : 'locked'}">
@@ -335,7 +342,7 @@ function render(s) {
               <div class="nm">${esc(a.name)}<span class="pill ${a.rarity}">${a.rarity}</span></div>
               <div class="ds">${esc(a.desc)}</div>
               ${a.unlockedAt
-                ? `<div class="when">✓ ${new Date(a.unlockedAt).toLocaleDateString('ko-KR')} 달성</div>`
+                ? `<div class="when">✓ ${new Date(a.unlockedAt).toLocaleDateString(LOC)} ${S.achievedOn}</div>`
                 : `<div class="prog"><i style="width:${(a.have / a.need * 100).toFixed(1)}%"></i></div>
                    <div class="ds" style="margin-top:4px">${num(a.have)} / ${num(a.need)}</div>`}
             </div>
@@ -348,10 +355,10 @@ function render(s) {
     <span class="big">${lastErr ? '⚠️' : '🛡'}</span>
     <span>
       ${lastErr
-        ? `<b>파싱 실패 ${lastErr}줄</b> — history.jsonl 포맷이 바뀌었을 수 있다. 터미널 로그를 확인할 것.`
+        ? `<b>${lastErr}</b> ${S.shieldError}`
         : s.source.daysBeyondSource > 0
-          ? `원본이 이미 삭제한 <b>${s.source.daysBeyondSource}일치</b>를 로컬 DB가 보존 중이다.`
-          : `<b>${s.totals.activeDays}일치</b> 보존 중. 원본은 30일 뒤 사라지지만 이 DB는 남는다.`}
+          ? `<b>${s.source.daysBeyondSource}</b> ${S.shieldBeyond}`
+          : `<b>${s.totals.activeDays}</b> ${S.shieldPreserving}`}
     </span>
     <code style="margin-left:auto">${esc(s.source.dbPath)}</code>
   </div>`;
@@ -359,12 +366,12 @@ function render(s) {
 
 async function load() {
   try {
-    const r = await fetch('/api/stats');
+    const r = await fetch('/api/stats' + location.search);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     render(await r.json());
   } catch (e) {
     document.getElementById('app').innerHTML =
-      `<div class="panel"><h2>불러오기 실패</h2><div class="meta">${esc(e.message)}</div></div>`;
+      `<div class="panel"><h2>${S.loadFailed || 'Failed to load'}</h2><div class="meta">${esc(e.message)}</div></div>`;
   }
 }
 load();

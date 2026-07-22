@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync
 import { homedir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { dict, type Dict, type Lang } from './i18n.ts';
 
 /**
  * 자동 적재 설치.
@@ -71,7 +72,7 @@ export function stableNodePath(execPath = process.execPath): string {
   return execPath;
 }
 
-function buildHookGroup(nodePath: string, cliPath: string): HookGroup {
+function buildHookGroup(nodePath: string, cliPath: string, L: Dict['install']): HookGroup {
   return {
     hooks: [
       {
@@ -81,27 +82,26 @@ function buildHookGroup(nodePath: string, cliPath: string): HookGroup {
         args: [cliPath, 'sync', '--notify', '--quiet'],
         async: true,
         timeout: 30,
-        statusMessage: 'tamagit 적재 중',
+        statusMessage: L.statusMessage,
       },
     ],
   };
 }
 
-function readSettings(path: string): Settings {
+function readSettings(path: string, lang: Lang): Settings {
   if (!existsSync(path)) return {};
   const raw = readFileSync(path, 'utf8').trim();
   if (!raw) return {};
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      throw new Error('최상위가 객체가 아님');
+      throw new Error(dict(lang).parse.notTopLevelObject);
     }
     return parsed as Settings;
   } catch (e) {
     // 깨진 settings.json 을 덮어쓰면 사용자의 다른 설정이 전부 날아간다 — 멈춘다
     throw new Error(
-      `${path} 를 읽을 수 없다 (${e instanceof Error ? e.message : e}). ` +
-        '직접 고친 뒤 다시 실행할 것.',
+      dict(lang).install.unreadable(path, String(e instanceof Error ? e.message : e)),
     );
   }
 }
@@ -127,37 +127,40 @@ export function installHook(
   settingsPath = SETTINGS_PATH,
   nodePath = stableNodePath(),
   cliPath = CLI_PATH,
+  lang: Lang = 'en',
 ): HookResult {
-  const settings = readSettings(settingsPath);
+  const L = dict(lang).install;
+  const settings = readSettings(settingsPath, lang);
   const hooks = (settings.hooks ??= {});
   const groups = (hooks[HOOK_EVENT] ??= []);
 
   // 이미 있으면 최신 경로로 갱신만 한다 (중복 등록 방지)
   const mineIdx = groups.findIndex(isOurs);
-  const fresh = buildHookGroup(nodePath, cliPath);
+  const fresh = buildHookGroup(nodePath, cliPath, L);
   if (mineIdx >= 0) {
     const before = JSON.stringify(groups[mineIdx]);
     groups[mineIdx] = fresh;
     if (before === JSON.stringify(fresh)) {
-      return { changed: false, message: `이미 설치돼 있다 (${HOOK_EVENT})` };
+      return { changed: false, message: L.hookAlready };
     }
     const backup = writeSettingsWithBackup(settingsPath, settings);
-    return { changed: true, message: `${HOOK_EVENT} 훅 경로를 갱신했다`, backup };
+    return { changed: true, message: L.hookUpdated, backup };
   }
 
   groups.push(fresh);
   const backup = writeSettingsWithBackup(settingsPath, settings);
-  return { changed: true, message: `${HOOK_EVENT} 훅을 설치했다`, backup };
+  return { changed: true, message: L.hookInstalled, backup };
 }
 
-export function uninstallHook(settingsPath = SETTINGS_PATH): HookResult {
-  if (!existsSync(settingsPath)) return { changed: false, message: 'settings.json 이 없다' };
-  const settings = readSettings(settingsPath);
+export function uninstallHook(settingsPath = SETTINGS_PATH, lang: Lang = 'en'): HookResult {
+  const L = dict(lang).install;
+  if (!existsSync(settingsPath)) return { changed: false, message: L.noSettings };
+  const settings = readSettings(settingsPath, lang);
   const groups = settings.hooks?.[HOOK_EVENT];
-  if (!groups?.length) return { changed: false, message: '설치된 훅이 없다' };
+  if (!groups?.length) return { changed: false, message: L.hookNone };
 
   const kept = groups.filter((g) => !isOurs(g));
-  if (kept.length === groups.length) return { changed: false, message: '설치된 훅이 없다' };
+  if (kept.length === groups.length) return { changed: false, message: L.hookNone };
 
   // 남의 설정은 건드리지 않는다 — 비어야만 키를 지운다
   if (kept.length) settings.hooks![HOOK_EVENT] = kept;
@@ -165,13 +168,14 @@ export function uninstallHook(settingsPath = SETTINGS_PATH): HookResult {
   if (settings.hooks && Object.keys(settings.hooks).length === 0) delete settings.hooks;
 
   const backup = writeSettingsWithBackup(settingsPath, settings);
-  return { changed: true, message: `${HOOK_EVENT} 훅을 제거했다`, backup };
+  return { changed: true, message: L.hookRemoved, backup };
 }
 
 export function isHookInstalled(settingsPath = SETTINGS_PATH): boolean {
+  const lang: Lang = 'en';
   if (!existsSync(settingsPath)) return false;
   try {
-    return (readSettings(settingsPath).hooks?.[HOOK_EVENT] ?? []).some(isOurs);
+    return (readSettings(settingsPath, lang).hooks?.[HOOK_EVENT] ?? []).some(isOurs);
   } catch {
     return false;
   }
@@ -233,9 +237,10 @@ function launchctl(args: string[]): { ok: boolean; err: string } {
   }
 }
 
-export function installAgent(hour = 21, plistPath = AGENT_PLIST): AgentResult {
+export function installAgent(hour = 21, plistPath = AGENT_PLIST, lang: Lang = 'en'): AgentResult {
+  const L = dict(lang).install;
   if (process.platform !== 'darwin') {
-    return { changed: false, message: 'launchd 는 macOS 전용이다 — cron 을 쓸 것' };
+    return { changed: false, message: L.agentMacOnly };
   }
   const logPath = join(homedir(), '.tamagit', 'launchd.log');
   mkdirSync(dirname(logPath), { recursive: true });
@@ -249,20 +254,21 @@ export function installAgent(hour = 21, plistPath = AGENT_PLIST): AgentResult {
     return {
       changed: true,
       plistPath,
-      message: `plist 는 썼지만 등록에 실패했다. 수동 실행:\n     launchctl bootstrap ${domain} ${plistPath}`,
+      message: L.agentPartial(`launchctl bootstrap ${domain} ${plistPath}`),
     };
   }
-  return { changed: true, plistPath, message: `매일 ${hour}시 자동 실행 등록됨` };
+  return { changed: true, plistPath, message: L.agentScheduled(hour) };
 }
 
-export function uninstallAgent(plistPath = AGENT_PLIST): AgentResult {
-  if (process.platform !== 'darwin') return { changed: false, message: 'macOS 전용' };
+export function uninstallAgent(plistPath = AGENT_PLIST, lang: Lang = 'en'): AgentResult {
+  const L = dict(lang).install;
+  if (process.platform !== 'darwin') return { changed: false, message: L.agentMacOnly };
   const existed = existsSync(plistPath);
   launchctl(['bootout', `gui/${userInfo().uid}/${AGENT_LABEL}`]);
   if (existed) rmSync(plistPath, { force: true });
   return {
     changed: existed,
-    message: existed ? '자동 실행을 해제했다' : '등록된 자동 실행이 없다',
+    message: existed ? L.agentRemoved : L.agentNone,
   };
 }
 

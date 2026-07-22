@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { resolveLang, type Lang } from './i18n.ts';
 
 /**
  * v0 확정 규칙 (docs/SPIKE-01-data-sources.md §5 기준)
@@ -30,6 +31,8 @@ export interface XpConfig {
 }
 
 export interface Config {
+  /** 출력 언어. 기본 en — OSS 배포 대상이 데브 커뮤니티다 */
+  lang: Lang;
   historyPath: string;
   dbPath: string;
   timeZone: string;
@@ -43,6 +46,7 @@ export interface Config {
 }
 
 export const DEFAULT_CONFIG: Config = {
+  lang: resolveLang(),
   historyPath: join(homedir(), '.claude', 'history.jsonl'),
   dbPath: join(homedir(), '.tamagit', 'data.db'),
   timeZone: process.env.TZ || 'Asia/Seoul',
@@ -65,6 +69,7 @@ export const DEFAULT_CONFIG: Config = {
 };
 
 export interface CliOverrides {
+  lang?: string;
   history?: string;
   db?: string;
   tz?: string;
@@ -76,6 +81,7 @@ export interface CliOverrides {
 export function resolveConfig(o: CliOverrides = {}): Config {
   return {
     ...DEFAULT_CONFIG,
+    lang: resolveLang(o.lang),
     historyPath: o.history ?? DEFAULT_CONFIG.historyPath,
     dbPath: o.db ?? DEFAULT_CONFIG.dbPath,
     timeZone: o.tz ?? DEFAULT_CONFIG.timeZone,

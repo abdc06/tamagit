@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import type { Stats } from './stats.ts';
+import { dict, type Lang } from './i18n.ts';
 
 /**
  * 알림. 게임화의 핵심 루프(손실 회피 → 복귀)는 대시보드를 열어야만 보이면 작동하지 않는다.
@@ -37,7 +38,9 @@ export function decideNudges(
   stats: Stats,
   newAchievementIds: string[],
   state: NudgeState,
+  lang: Lang = 'en',
 ): NudgeResult {
+  const d = dict(lang).notify;
   const nudges: Nudge[] = [];
   const next: NudgeState = { ...state };
   const level = stats.level.level;
@@ -45,14 +48,15 @@ export function decideNudges(
 
   // 1) 레벨업 — 처음 실행이면 알리지 않는다 (과거 기록을 몰아서 축하하면 스팸이 된다)
   if (state.lastNotifiedLevel !== null && level > state.lastNotifiedLevel) {
+    const from = state.lastNotifiedLevel;
     nudges.push({
       kind: 'levelup',
-      title: `${pet.icon} Lv.${level} 달성`,
+      title: d.levelUp(pet.icon, level),
       subtitle: pet.name,
       message:
-        state.lastNotifiedLevel + 1 === level
-          ? `${state.lastNotifiedLevel} → ${level}. 총 ${stats.level.totalXp.toLocaleString()} XP`
-          : `${state.lastNotifiedLevel} → ${level} (${level - state.lastNotifiedLevel}레벨 상승)`,
+        from + 1 === level
+          ? d.levelUpBody(from, level, stats.level.totalXp.toLocaleString())
+          : d.levelUpJump(from, level, level - from),
     });
   }
   next.lastNotifiedLevel = level;
@@ -64,12 +68,10 @@ export function decideNudges(
     if (first) {
       nudges.push({
         kind: 'achievement',
-        title: `${first.icon} 업적 해금`,
+        title: d.achievement(first.icon),
         subtitle: first.name,
         message:
-          unlocked.length > 1
-            ? `${first.desc} 외 ${unlocked.length - 1}개`
-            : first.desc,
+          unlocked.length > 1 ? d.achievementMore(first.desc, unlocked.length - 1) : first.desc,
       });
     }
   }
@@ -80,12 +82,12 @@ export function decideNudges(
   if (atRisk && state.lastStreakNagDay !== today) {
     nudges.push({
       kind: 'streak-risk',
-      title: `🔥 ${stats.streak.current}일 연속이 오늘 끊긴다`,
+      title: d.streakRisk(stats.streak.current),
       subtitle: `${pet.icon} ${pet.name}`,
       message:
         stats.streak.current >= stats.streak.longest
-          ? '최장 기록을 갱신 중이다. 한 건만 넣어도 유지된다.'
-          : `최장 ${stats.streak.longest}일. 한 건만 넣어도 유지된다.`,
+          ? d.streakRiskRecord
+          : d.streakRiskBody(stats.streak.longest),
     });
     next.lastStreakNagDay = today;
   }

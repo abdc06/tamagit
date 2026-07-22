@@ -1,4 +1,5 @@
 import type { Stats } from './core/stats.ts';
+import { dict } from './core/i18n.ts';
 
 const C = {
   reset: '\x1b[0m',
@@ -65,6 +66,7 @@ function heatLevel(xp: number, max: number): string {
 }
 
 export function renderTerminal(s: Stats): string {
+  const T = dict(s.lang).term;
   const L: string[] = [];
   const p = (line = '') => L.push(line);
   const n = (v: number) => v.toLocaleString();
@@ -74,26 +76,26 @@ export function renderTerminal(s: Stats): string {
   const xpBar = `${C.green}${'█'.repeat(filled)}${C.gray}${'░'.repeat(barW - filled)}${C.reset}`;
 
   p();
-  p(`  🥚 ${C.bold}${C.cyan}tamagit${C.reset}  ${C.dim}${s.today} (${s.timeZone}, 하루 시작 ${s.dayStartHour}시)${C.reset}`);
+  p(`  🥚 ${C.bold}${C.cyan}tamagit${C.reset}  ${C.dim}${s.today} · ${s.timeZone} · ${T.dayStartAt(s.dayStartHour)}${C.reset}`);
   p();
   p(`  ${s.pet.icon}  ${C.bold}Lv.${s.level.level}${C.reset} ${s.pet.name}  ${C.dim}${s.pet.moodLabel}${C.reset}`);
   p(`     ${C.gray}${s.pet.line}${C.reset}`);
   p();
   p(`  ${xpBar} ${n(s.level.intoLevel)}/${n(s.level.needed)}`);
-  p(`  ${C.dim}총 ${n(s.level.totalXp)} XP${C.reset}`);
+  p(`  ${C.dim}${T.totalXp(n(s.level.totalXp))}${C.reset}`);
   p();
 
   const flame = s.streak.current > 0 ? '🔥' : '💤';
-  const risk = s.streak.atRisk ? ` ${C.red}(오늘 안 하면 끊김)${C.reset}` : '';
-  p(`  ${C.bold}오늘${C.reset}  ${C.yellow}${n(s.todayStat.xp)} XP${C.reset}  ·  프롬프트 ${n(s.todayStat.prompts)}  ·  보스전 ${s.todayStat.bosses}`);
-  p(`  ${C.bold}스트릭${C.reset} ${flame} ${C.magenta}${s.streak.current}일${C.reset} 연속  ·  최장 ${s.streak.longest}일${risk}`);
-  p(`  ${C.bold}누적${C.reset}  프롬프트 ${n(s.totals.prompts)}  ·  몰입구간 ${n(s.totals.runs)}  ·  보스 ${s.totals.bosses}  ·  프로젝트 ${s.totals.projects}`);
+  const risk = s.streak.atRisk ? ` ${C.red}${T.atRisk}${C.reset}` : '';
+  p(`  ${C.bold}${T.today}${C.reset}  ${C.yellow}${T.todayLine(n(s.todayStat.xp), n(s.todayStat.prompts), s.todayStat.bosses)}${C.reset}`);
+  p(`  ${C.bold}${T.streak}${C.reset} ${flame} ${C.magenta}${T.streakLine(s.streak.current, s.streak.longest)}${C.reset}${risk}`);
+  p(`  ${C.bold}${T.totals}${C.reset}  ${T.totalsLine(n(s.totals.prompts), n(s.totals.runs), s.totals.bosses, s.totals.projects)}`);
   p();
 
   // 히트맵 (최근 35일)
   const recent = s.days.slice(-35);
   const maxXp = Math.max(1, ...recent.map((d) => d.xp));
-  p(`  ${C.bold}최근 ${recent.length}일${C.reset} ${C.dim}(각 칸 = 하루)${C.reset}`);
+  p(`  ${C.bold}${T.recentDays(recent.length)}${C.reset} ${C.dim}${T.perCell}${C.reset}`);
   p(`  ${recent.map((d) => heatLevel(d.xp, maxXp)).join('')}`);
   const firstDay = recent[0]?.day ?? '';
   const lastDay = recent[recent.length - 1]?.day ?? '';
@@ -103,14 +105,14 @@ export function renderTerminal(s: Stats): string {
   // 일별 XP TOP 5
   const top = [...s.days].sort((a, b) => b.xp - a.xp).slice(0, 5);
   const topMax = Math.max(1, ...top.map((d) => d.xp));
-  p(`  ${C.bold}최고의 날${C.reset}`);
+  p(`  ${C.bold}${T.bestDays}${C.reset}`);
   for (const d of top) {
-    p(`   ${C.dim}${d.day}${C.reset} ${String(n(d.xp)).padStart(6)} XP ${C.green}${bar(d.xp, topMax, 24)}${C.reset} ${C.gray}${d.prompts}p${d.bosses ? ` ⚔${d.bosses}` : ''}${C.reset}`);
+    p(`   ${C.dim}${d.day}${C.reset} ${String(n(d.xp)).padStart(6)} XP ${C.green}${bar(d.xp, topMax, 24)}${C.reset} ${C.gray}${d.prompts}${T.prompts}${d.bosses ? ` ⚔${d.bosses}` : ''}${C.reset}`);
   }
   p();
 
   // 프로젝트 TOP 5
-  p(`  ${C.bold}주력 프로젝트${C.reset}`);
+  p(`  ${C.bold}${T.topProjects}${C.reset}`);
   const projMax = Math.max(1, ...s.projects.slice(0, 5).map((x) => x.prompts));
   for (const pr of s.projects.slice(0, 5)) {
     p(`   ${padEndW(truncW(pr.name, 22), 22)} ${String(n(pr.prompts)).padStart(5)} ${C.cyan}${bar(pr.prompts, projMax, 20)}${C.reset}`);
@@ -119,7 +121,7 @@ export function renderTerminal(s: Stats): string {
 
   // 업적
   const unlocked = s.achievements.filter((a) => a.unlockedAt);
-  p(`  ${C.bold}업적${C.reset} ${C.dim}${unlocked.length}/${s.achievements.length}${C.reset}`);
+  p(`  ${C.bold}${T.achievements}${C.reset} ${C.dim}${unlocked.length}/${s.achievements.length}${C.reset}`);
   for (const a of s.achievements) {
     const nm = padEndW(a.name, 16);
     if (a.unlockedAt) {
@@ -133,9 +135,9 @@ export function renderTerminal(s: Stats): string {
 
   // 데이터 보존 상태 — 이 도구의 존재이유
   if (s.source.daysBeyondSource > 0) {
-    p(`  ${C.green}🛡  원본이 이미 지운 ${s.source.daysBeyondSource}일치를 DB가 보존 중${C.reset}`);
+    p(`  ${C.green}${T.preservedBeyond(s.source.daysBeyondSource)}${C.reset}`);
   } else {
-    p(`  ${C.dim}🛡  DB 보존 ${s.totals.activeDays}일치 · 원본 30일 삭제 방어 대기 중${C.reset}`);
+    p(`  ${C.dim}${T.preserved(s.totals.activeDays)}${C.reset}`);
   }
   p(`  ${C.gray}   ${s.source.dbPath}${C.reset}`);
   p();

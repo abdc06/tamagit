@@ -12,6 +12,7 @@ import {
   AGENT_LABEL,
 } from './install.ts';
 import { decideNudges, type NudgeState } from './notify.ts';
+import { dict, resolveLang } from './i18n.ts';
 import type { Stats } from './stats.ts';
 
 const tmp = () => mkdtempSync(join(tmpdir(), 'tamagit-install-'));
@@ -102,8 +103,15 @@ describe('훅 설치 — 남의 설정을 절대 건드리지 않는다', () => 
   test('깨진 settings.json 은 덮어쓰지 않고 멈춘다', () => {
     const f = join(tmp(), 'settings.json');
     writeFileSync(f, '{ this is not json');
-    assert.throws(() => installHook(f, NODE, CLI), /읽을 수 없다/);
+    assert.throws(() => installHook(f, NODE, CLI), /Cannot read/);
     assert.equal(readFileSync(f, 'utf8'), '{ this is not json'); // 원본 그대로
+  });
+
+  test('메시지는 기본 영어, --lang ko 로 한국어', () => {
+    const f1 = join(tmp(), 'settings.json');
+    assert.equal(installHook(f1, NODE, CLI).message, 'SessionEnd hook installed');
+    const f2 = join(tmp(), 'settings.json');
+    assert.equal(installHook(f2, NODE, CLI, 'ko').message, 'SessionEnd 훅을 설치했다');
   });
 
   test('빈 파일은 빈 설정으로 취급한다', () => {
@@ -205,7 +213,7 @@ describe('알림 판단', () => {
     const { nudges } = decideNudges(fakeStats(), ['streak-7', 'frenzy'], { ...SEEN, lastNotifiedLevel: 13 });
     const a = nudges.find((n) => n.kind === 'achievement');
     assert.ok(a);
-    assert.match(a!.message, /외 1개/);
+    assert.match(a!.message, /and 1 more/);
   });
 
   test('스트릭 위험: 오늘 0건 + 어제까지 이어짐 → 알린다', () => {
@@ -216,7 +224,7 @@ describe('알림 판단', () => {
     const { nudges, nextState } = decideNudges(s, [], { ...SEEN, lastNotifiedLevel: 13 });
     const risk = nudges.find((n) => n.kind === 'streak-risk');
     assert.ok(risk);
-    assert.match(risk!.title, /4일 연속이 오늘 끊긴다/);
+    assert.match(risk!.title, /4-day streak breaks today/);
     assert.equal(nextState.lastStreakNagDay, '2026-07-22');
   });
 
@@ -255,6 +263,84 @@ describe('알림 판단', () => {
       todayStat: { ...fakeStats().todayStat, prompts: 0, xp: 0 },
     });
     const { nudges } = decideNudges(s, [], { ...SEEN, lastNotifiedLevel: 13 });
-    assert.match(nudges.find((n) => n.kind === 'streak-risk')!.message, /최장 기록을 갱신/);
+    assert.match(nudges.find((n) => n.kind === 'streak-risk')!.message, /longest run yet/);
+  });
+
+  test('언어 인자에 따라 문구가 바뀐다 (기본은 영어)', () => {
+    const s = fakeStats({
+      streak: { current: 4, longest: 24, atRisk: true },
+      todayStat: { ...fakeStats().todayStat, prompts: 0, xp: 0 },
+    });
+    const st: NudgeState = { lastNotifiedLevel: 13, lastStreakNagDay: null };
+    const en = decideNudges(s, [], st).nudges[0]!;
+    const ko = decideNudges(s, [], st, 'ko').nudges[0]!;
+    assert.match(en.title, /streak breaks today/);
+    assert.match(ko.title, /연속이 오늘 끊긴다/);
+    // 판단 자체는 언어와 무관해야 한다
+    assert.equal(en.kind, ko.kind);
+  });
+});
+
+describe('언어 선택', () => {
+  test('기본은 영어', () => {
+    delete process.env.TAMAGIT_LANG;
+    assert.equal(resolveLang(), 'en');
+    assert.equal(resolveLang(undefined), 'en');
+  });
+
+  test('명시 인자가 최우선', () => {
+    assert.equal(resolveLang('ko'), 'ko');
+    assert.equal(resolveLang('ko-KR'), 'ko');
+    assert.equal(resolveLang('en'), 'en');
+  });
+
+  test('환경변수 TAMAGIT_LANG 로도 켠다', () => {
+    process.env.TAMAGIT_LANG = 'ko';
+    try {
+      assert.equal(resolveLang(), 'ko');
+      assert.equal(resolveLang('en'), 'en'); // 인자가 env 를 이긴다
+    } finally {
+      delete process.env.TAMAGIT_LANG;
+    }
+  });
+
+  test('모르는 값은 기본(영어)으로 떨어진다', () => {
+    assert.equal(resolveLang('jp'), 'en');
+    assert.equal(resolveLang(''), 'en');
+  });
+
+  test('로케일을 자동 감지하지 않는다 — 기본이 영어라는 계약이 흔들리면 안 된다', () => {
+    const prev = process.env.LANG;
+    process.env.LANG = 'ko_KR.UTF-8';
+    try {
+      assert.equal(resolveLang(), 'en');
+    } finally {
+      if (prev === undefined) delete process.env.LANG;
+      else process.env.LANG = prev;
+    }
+  });
+
+  test('두 사전의 키가 완전히 일치한다 (번역 누락 방지)', () => {
+    const en = dict('en');
+    const ko = dict('ko');
+    assert.deepEqual(Object.keys(en.ach).sort(), Object.keys(ko.ach).sort());
+    assert.equal(en.petStage.length, ko.petStage.length);
+    assert.deepEqual(Object.keys(en.web).sort(), Object.keys(ko.web).sort());
+    for (const group of ['cli', 'sync', 'install', 'notify', 'term'] as const) {
+      assert.deepEqual(
+        Object.keys(en[group]).sort(),
+        Object.keys(ko[group]).sort(),
+        `${group} 키가 어긋난다`,
+      );
+    }
+  });
+
+  test('web 문자열에 빈 값이 없다', () => {
+    for (const lang of ['en', 'ko'] as const) {
+      for (const [k, v] of Object.entries(dict(lang).web)) {
+        if (k === 'items') continue; // 영어에선 의도적으로 빈 문자열(단위 없음)
+        assert.ok(v.length > 0, `${lang}.web.${k} 가 비어 있다`);
+      }
+    }
   });
 });
